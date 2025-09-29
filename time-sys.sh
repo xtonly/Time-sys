@@ -6,7 +6,7 @@
 #
 #         USAGE: sudo ./setup_time.sh
 #
-#   DESCRIPTION: 一个用于设置时区为香港、配置阿里云NTP服务器并同步时间的自动化脚本。
+#   DESCRIPTION: 一个用于设置时区为香港、配置香港天文台NTP服务器并同步时间的自动化脚本。
 #                支持手动同步和设置后台服务。优先使用 chrony。
 #
 #       OPTIONS: ---
@@ -14,15 +14,16 @@
 #          BUGS: ---
 #         NOTES: ---
 #        AUTHOR: Gemini AI
-#       VERSION: 1.4
+#       VERSION: 1.5
 #       CREATED: 2025-09-27
-#      REVISION: 根据用户请求，将退出选项从 '5' 修改为 '0'。
+#      REVISION: 将NTP服务器更换为香港天文台官方服务器 (stdtime.gov.hk, time.hko.hk)。
 #
 #===============================================================================================
 
 # --- 全局变量和配置 ---
 TIMEZONE="Asia/Hong_Kong"
-NTP_SERVERS=("ntp.aliyun.com" "ntp1.aliyun.com")
+NTP_SERVERS=("stdtime.gov.hk" "time.hko.hk")
+
 CHRONY_CONF="" # 将在此处动态查找路径
 
 # --- 颜色定义 ---
@@ -160,12 +161,17 @@ setup_background_sync() {
     cp "$CHRONY_CONF" "$CHRONY_CONF.bak.$(date +%F-%H%M%S)"
     echo "配置文件已备份到: $CHRONY_CONF.bak.$(date +%F-%H%M%S)"
 
+    # 注释掉默认的 server/pool 配置
     sed -i -e 's/^\(server .*\)/#\1/g' -e 's/^\(pool .*\)/#\1/g' "$CHRONY_CONF"
     echo "已注释掉旧的服务器配置。"
 
+    # 清理旧的脚本配置
     sed -i '/# Added by setup_time.sh/d' "$CHRONY_CONF"
     sed -i '/ntp.*.aliyun.com/d' "$CHRONY_CONF"
+    sed -i '/stdtime.gov.hk/d' "$CHRONY_CONF"
+    sed -i '/time.hko.hk/d' "$CHRONY_CONF"
 
+    # 添加香港天文台 NTP 服务器
     {
         echo ""
         echo "# Added by setup_time.sh"
@@ -173,7 +179,7 @@ setup_background_sync() {
             echo "server $server iburst"
         done
     } >> "$CHRONY_CONF"
-    echo "已将阿里云NTP服务器添加到配置文件。"
+    echo "已将香港天文台NTP服务器添加到配置文件。"
 
     echo "正在重启并设置 chrony 服务开机自启..."
     systemctl restart chronyd
@@ -210,7 +216,7 @@ main_menu() {
     while true; do
         clear
         echo "================================================"
-        echo "      阿里云 NTP 时间同步与时区设置脚本 (v1.4)"
+        echo "    香港天文台 NTP 时间同步与时区设置脚本 (v1.5)"
         echo "================================================"
         echo -e "请选择操作:"
         echo -e "  ${GREEN}1. 设置时区为 香港 (Asia/Hong_Kong)${NC}"
