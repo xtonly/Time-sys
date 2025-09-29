@@ -14,9 +14,9 @@
 #          BUGS: ---
 #         NOTES: ---
 #        AUTHOR: Gemini AI
-#       VERSION: 1.2
+#       VERSION: 1.3
 #       CREATED: 2025-09-27
-#      REVISION: 增加了 chrony.conf 文件的自动搜索功能，提高了兼容性。
+#      REVISION: 增加了 hwclock 命令的可用性检查，使其在缺少该命令的系统上能优雅地跳过。
 #
 #===============================================================================================
 
@@ -44,6 +44,11 @@ check_root() {
 
 # 动态查找 chrony 配置文件
 find_chrony_conf() {
+    # 仅当 CHRONY_CONF 为空时才查找
+    if [ -n "$CHRONY_CONF" ]; then
+        return
+    fi
+
     local locations=(
         "/etc/chrony/chrony.conf"
         "/etc/chrony.conf"
@@ -68,10 +73,8 @@ find_chrony_conf() {
     fi
 }
 
-
 # 检查并安装依赖
 install_deps() {
-    # 优先检查并安装chrony
     if ! command -v chronyc &> /dev/null; then
         echo -e "${YELLOW}未找到 chrony，正在尝试安装...${NC}"
         if command -v apt-get &> /dev/null; then
@@ -111,11 +114,9 @@ sync_now() {
     echo -e "\n${YELLOW}--- 2. 正在手动同步时间... ---${NC}"
     echo "使用服务器: ${NTP_SERVERS[0]}"
 
-    # 停止正在运行的服务，避免冲突
     systemctl stop chronyd 2>/dev/null
     systemctl stop ntpd 2>/dev/null
 
-    # 使用 ntpdate (如果存在) 或 chronyd -q
     if command -v ntpdate &> /dev/null; then
         ntpdate -u "${NTP_SERVERS[0]}"
     else
@@ -129,38 +130,39 @@ sync_now() {
         echo -e "${RED}时间同步失败！请检查网络连接或NTP服务器地址。${NC}"
     fi
 
-    # 重新启动后台服务（如果之前在运行）
     if systemctl is-active --quiet chronyd; then
         systemctl start chronyd
     fi
-    hwclock -w # 将系统时间写入硬件时钟
+    
+    # 检查 hwclock 命令是否存在，如果存在则执行
+    if command -v hwclock &> /dev/null; then
+        hwclock -w
+        echo "系统时间已写入硬件时钟。"
+    else
+        echo -e "${YELLOW}提示: 'hwclock' 命令未找到，跳过写入硬件时钟。这在容器或最小化系统中是正常的。${NC}"
+    fi
+
     echo "当前时间: $(date)"
     sleep 2
 }
 
 # 3. 设置并开启后台自动同步
 setup_background_sync() {
-    # 在执行操作前先查找配置文件
     find_chrony_conf
     if [ -z "$CHRONY_CONF" ]; then
         echo -e "${RED}错误：无法自动定位 chrony 配置文件。${NC}"
-        echo -e "${YELLOW}请手动找到 'chrony.conf' 文件并修改脚本顶部的 CHRONY_CONF 变量。${NC}"
         return 1
     fi
 
     echo -e "\n${YELLOW}--- 3. 正在配置后台自动同步服务 (chrony)... ---${NC}"
     echo "使用配置文件: $CHRONY_CONF"
 
-    # 备份原始配置文件
     cp "$CHRONY_CONF" "$CHRONY_CONF.bak.$(date +%F-%H%M%S)"
     echo "配置文件已备份到: $CHRONY_CONF.bak.$(date +%F-%H%M%S)"
 
-    # 注释掉默认的 server/pool 配置
     sed -i -e 's/^\(server .*\)/#\1/g' -e 's/^\(pool .*\)/#\1/g' "$CHRONY_CONF"
     echo "已注释掉旧的服务器配置。"
 
-    # 添加阿里云 NTP 服务器
-    # 先删除可能已存在的旧配置
     sed -i '/# Added by setup_time.sh/d' "$CHRONY_CONF"
     sed -i '/ntp.*.aliyun.com/d' "$CHRONY_CONF"
 
@@ -173,10 +175,9 @@ setup_background_sync() {
     } >> "$CHRONY_CONF"
     echo "已将阿里云NTP服务器添加到配置文件。"
 
-    # 重启并启用 chrony 服务
     echo "正在重启并设置 chrony 服务开机自启..."
     systemctl restart chronyd
-    systemctl enable chronyd
+    systemctl enable chronyd &>/dev/null # 将 enable 的输出重定向，避免显示 linked unit file 的提示
 
     if systemctl is-active --quiet chronyd; then
         echo -e "${GREEN}chrony 后台同步服务已成功配置并启动！${NC}"
@@ -209,7 +210,7 @@ main_menu() {
     while true; do
         clear
         echo "================================================"
-        echo "      阿里云 NTP 时间同步与时区设置脚本 (v1.2)"
+        echo "      阿里云 NTP 时间同步与时区设置脚本 (v1.3)"
         echo "================================================"
         echo -e "请选择操作:"
         echo -e "  ${GREEN}1. 设置时区为 香港 (Asia/Hong_Kong)${NC}"
