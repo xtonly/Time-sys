@@ -14,9 +14,9 @@
 #          BUGS: ---
 #         NOTES: ---
 #        AUTHOR: Gemini AI
-#       VERSION: 1.3
+#       VERSION: 1.4
 #       CREATED: 2025-09-27
-#      REVISION: 增加了 hwclock 命令的可用性检查，使其在缺少该命令的系统上能优雅地跳过。
+#      REVISION: 根据用户请求，将退出选项从 '5' 修改为 '0'。
 #
 #===============================================================================================
 
@@ -210,24 +210,24 @@ main_menu() {
     while true; do
         clear
         echo "================================================"
-        echo "      阿里云 NTP 时间同步与时区设置脚本 (v1.3)"
+        echo "      阿里云 NTP 时间同步与时区设置脚本 (v1.4)"
         echo "================================================"
         echo -e "请选择操作:"
         echo -e "  ${GREEN}1. 设置时区为 香港 (Asia/Hong_Kong)${NC}"
         echo -e "  ${GREEN}2. [手动] 立即同步一次时间${NC}"
         echo -e "  ${GREEN}3. [自动] 设置并开启后台同步服务 (推荐)${NC}"
         echo -e "  ${GREEN}4. 查看当前状态${NC}"
-        echo -e "  ${RED}5. 退出脚本${NC}"
+        echo -e "  ${RED}0. 退出脚本${NC}"
         echo "================================================"
-        read -p "请输入选项 [1-5]: " choice
+        read -p "请输入选项 [1-4, 0]: " choice
 
         case $choice in
             1) set_timezone ;;
             2) sync_now ;;
             3) setup_background_sync ;;
             4) show_status ;;
-            5) echo "退出脚本。"; exit 0 ;;
-            *) echo -e "${RED}无效输入，请输入 1-5 之间的数字。${NC}"; sleep 2 ;;
+            0) echo "退出脚本。"; exit 0 ;;
+            *) echo -e "${RED}无效输入，请输入有效选项。${NC}"; sleep 2 ;;
         esac
         echo -e "\n按任意键返回主菜单..."
         read -n 1
