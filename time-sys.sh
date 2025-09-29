@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 #===============================================================================================
@@ -15,21 +14,16 @@
 #          BUGS: ---
 #         NOTES: ---
 #        AUTHOR: Gemini AI
-#       VERSION: 1.1
+#       VERSION: 1.2
 #       CREATED: 2025-09-27
-#      REVISION:
+#      REVISION: 增加了 chrony.conf 文件的自动搜索功能，提高了兼容性。
 #
 #===============================================================================================
 
 # --- 全局变量和配置 ---
 TIMEZONE="Asia/Hong_Kong"
 NTP_SERVERS=("ntp.aliyun.com" "ntp1.aliyun.com")
-CHRONY_CONF="/etc/chrony/chrony.conf"
-# 有些系统的chrony配置文件路径不同
-if [ ! -f "$CHRONY_CONF" ]; then
-    CHRONY_CONF="/etc/chrony.conf"
-fi
-NTP_CONF="/etc/ntp.conf"
+CHRONY_CONF="" # 将在此处动态查找路径
 
 # --- 颜色定义 ---
 RED='\033[0;31m'
@@ -47,6 +41,33 @@ check_root() {
         exit 1
     fi
 }
+
+# 动态查找 chrony 配置文件
+find_chrony_conf() {
+    local locations=(
+        "/etc/chrony/chrony.conf"
+        "/etc/chrony.conf"
+    )
+    for loc in "${locations[@]}"; do
+        if [ -f "$loc" ]; then
+            CHRONY_CONF="$loc"
+            return
+        fi
+    done
+
+    # 如果在标准位置未找到，则在 /etc 目录下搜索
+    echo -e "${YELLOW}在标准位置未找到配置文件，正在尝试搜索 /etc 目录...${NC}"
+    local found_path
+    found_path=$(find /etc -name "chrony.conf" 2>/dev/null | head -n 1)
+    if [ -n "$found_path" ] && [ -f "$found_path" ]; then
+        CHRONY_CONF="$found_path"
+        echo -e "${GREEN}成功找到配置文件: $CHRONY_CONF${NC}"
+        sleep 1
+    else
+        CHRONY_CONF="" # 确认设置为空
+    fi
+}
+
 
 # 检查并安装依赖
 install_deps() {
@@ -99,7 +120,6 @@ sync_now() {
         ntpdate -u "${NTP_SERVERS[0]}"
     else
         echo "未找到 ntpdate, 使用 chronyd 进行一次性同步..."
-        # -q 选项会在后台同步时间并退出
         chronyd -q "server ${NTP_SERVERS[0]} iburst"
     fi
 
@@ -120,16 +140,20 @@ sync_now() {
 
 # 3. 设置并开启后台自动同步
 setup_background_sync() {
-    echo -e "\n${YELLOW}--- 3. 正在配置后台自动同步服务 (chrony)... ---${NC}"
-
-    # 备份原始配置文件
-    if [ -f "$CHRONY_CONF" ]; then
-        cp "$CHRONY_CONF" "$CHRONY_CONF.bak.$(date +%F)"
-        echo "配置文件已备份到: $CHRONY_CONF.bak.$(date +%F)"
-    else
-        echo -e "${RED}找不到 chrony 配置文件: $CHRONY_CONF ${NC}"
+    # 在执行操作前先查找配置文件
+    find_chrony_conf
+    if [ -z "$CHRONY_CONF" ]; then
+        echo -e "${RED}错误：无法自动定位 chrony 配置文件。${NC}"
+        echo -e "${YELLOW}请手动找到 'chrony.conf' 文件并修改脚本顶部的 CHRONY_CONF 变量。${NC}"
         return 1
     fi
+
+    echo -e "\n${YELLOW}--- 3. 正在配置后台自动同步服务 (chrony)... ---${NC}"
+    echo "使用配置文件: $CHRONY_CONF"
+
+    # 备份原始配置文件
+    cp "$CHRONY_CONF" "$CHRONY_CONF.bak.$(date +%F-%H%M%S)"
+    echo "配置文件已备份到: $CHRONY_CONF.bak.$(date +%F-%H%M%S)"
 
     # 注释掉默认的 server/pool 配置
     sed -i -e 's/^\(server .*\)/#\1/g' -e 's/^\(pool .*\)/#\1/g' "$CHRONY_CONF"
@@ -140,11 +164,13 @@ setup_background_sync() {
     sed -i '/# Added by setup_time.sh/d' "$CHRONY_CONF"
     sed -i '/ntp.*.aliyun.com/d' "$CHRONY_CONF"
 
-    echo "" >> "$CHRONY_CONF"
-    echo "# Added by setup_time.sh" >> "$CHRONY_CONF"
-    for server in "${NTP_SERVERS[@]}"; do
-        echo "server $server iburst" >> "$CHRONY_CONF"
-    done
+    {
+        echo ""
+        echo "# Added by setup_time.sh"
+        for server in "${NTP_SERVERS[@]}"; do
+            echo "server $server iburst"
+        done
+    } >> "$CHRONY_CONF"
     echo "已将阿里云NTP服务器添加到配置文件。"
 
     # 重启并启用 chrony 服务
@@ -163,7 +189,6 @@ setup_background_sync() {
     sleep 2
 }
 
-
 # 4. 显示当前时间和同步状态
 show_status() {
     echo -e "\n${YELLOW}--- 4. 当前系统时间和NTP状态 ---${NC}"
@@ -179,13 +204,12 @@ show_status() {
     sleep 2
 }
 
-
 # --- 主菜单 ---
 main_menu() {
     while true; do
         clear
         echo "================================================"
-        echo "      阿里云 NTP 时间同步与时区设置脚本"
+        echo "      阿里云 NTP 时间同步与时区设置脚本 (v1.2)"
         echo "================================================"
         echo -e "请选择操作:"
         echo -e "  ${GREEN}1. 设置时区为 香港 (Asia/Hong_Kong)${NC}"
